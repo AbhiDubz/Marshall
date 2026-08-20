@@ -6,6 +6,7 @@ package preempt
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/AbhiDubz/Marshall/pkg/types"
 )
@@ -34,9 +35,7 @@ func NewPolicy(a Allocator) *Policy { return &Policy{Alloc: a} }
 // SelectVictims chooses the set of running jobs to preempt so that
 // `pending` can be placed (NodeCount nodes at Request each).
 //
-// STUB — DO NOT IMPLEMENT (stub #5). Implemented by the project owner.
-//
-// Algorithm (what the implementation must do):
+// Algorithm:
 //
 //  1. ELIGIBILITY. Only candidates with Priority strictly lower than
 //     pending.Priority may be victims. Equal or higher priority is
@@ -83,7 +82,129 @@ func NewPolicy(a Allocator) *Policy { return &Policy{Alloc: a} }
 //     runs on at least one node of the final placement.
 //   - Deterministic under shuffled candidate and node order.
 func (p *Policy) SelectVictims(pending types.Job, running []Candidate, nodes []types.Node) ([]string, bool) {
-	panic("not implemented")
+	nc := pending.NodeCount
+	if nc < 1 {
+		nc = 1
+	}
+	work := make([]types.Node, len(nodes))
+	for i, n := range nodes {
+		work[i] = n.Clone()
+	}
+	types.SortNodesByID(work)
+
+	// Zero victims needed?
+	if _, ok := p.Alloc.Fit(work, pending.Request, nc); ok {
+		return []string{}, true
+	}
+
+	// Eligible: strictly lower priority only, deterministic order.
+	elig := make([]Candidate, 0, len(running))
+	for _, c := range running {
+		if c.Job.Priority < pending.Priority {
+			elig = append(elig, Candidate{Job: c.Job.Clone(), Alloc: c.Alloc.Clone()})
+		}
+	}
+	sort.Slice(elig, func(i, k int) bool { return elig[i].Job.ID < elig[k].Job.ID })
+
+	// onNode[n] = eligible candidates running (partly) on n, in
+	// eviction order: priority asc, StartAt desc (least work lost),
+	// then job ID asc.
+	onNode := make(map[string][]Candidate)
+	for _, c := range elig {
+		for _, nid := range c.Alloc.NodeIDs {
+			onNode[nid] = append(onNode[nid], c)
+		}
+	}
+	for nid := range onNode {
+		list := onNode[nid]
+		sort.SliceStable(list, func(i, k int) bool {
+			if list[i].Job.Priority != list[k].Job.Priority {
+				return list[i].Job.Priority < list[k].Job.Priority
+			}
+			if !list[i].Alloc.StartAt.Equal(list[k].Alloc.StartAt) {
+				return list[i].Alloc.StartAt.After(list[k].Alloc.StartAt)
+			}
+			return list[i].Job.ID < list[k].Job.ID
+		})
+	}
+
+	committed := make(map[string]bool) // victim job IDs
+	chosen := make(map[string]bool)    // node IDs claimed for pending's slots
+
+	nodeByID := func(id string) *types.Node {
+		for i := range work {
+			if work[i].ID == id {
+				return &work[i]
+			}
+		}
+		return nil
+	}
+
+	for slot := 0; slot < nc; slot++ {
+		bestNode := ""
+		var bestPrefix []Candidate
+		bestCount, bestPrio := 0, 0
+		for _, n := range work {
+			if chosen[n.ID] || n.Draining {
+				continue
+			}
+			// Shortest prefix of the node's victim list (skipping
+			// already-committed victims, whose resources are already
+			// released in `work`) that makes pending.Request fit.
+			avail := n.Available()
+			var prefix []Candidate
+			prioSum := 0
+			feasible := pending.Request.Fits(avail)
+			if !feasible {
+				for _, c := range onNode[n.ID] {
+					if committed[c.Job.ID] {
+						continue
+					}
+					prefix = append(prefix, c)
+					prioSum += c.Job.Priority
+					avail = avail.Add(c.Job.Request)
+					if pending.Request.Fits(avail) {
+						feasible = true
+						break
+					}
+				}
+			}
+			if !feasible {
+				continue
+			}
+			if bestNode == "" ||
+				len(prefix) < bestCount ||
+				(len(prefix) == bestCount && prioSum < bestPrio) ||
+				(len(prefix) == bestCount && prioSum == bestPrio && n.ID < bestNode) {
+				bestNode, bestPrefix, bestCount, bestPrio = n.ID, prefix, len(prefix), prioSum
+			}
+		}
+		if bestNode == "" {
+			return nil, false
+		}
+		chosen[bestNode] = true
+		// Commit the victims: a (gang) victim releases its request on
+		// EVERY node it occupies, which may make later slots free.
+		for _, v := range bestPrefix {
+			committed[v.Job.ID] = true
+			for _, nid := range v.Alloc.NodeIDs {
+				if n := nodeByID(nid); n != nil {
+					n.Allocated = n.Allocated.Sub(v.Job.Request)
+				}
+			}
+		}
+	}
+
+	// Verify: with victims released, the allocator must place pending.
+	if _, ok := p.Alloc.Fit(work, pending.Request, nc); !ok {
+		return nil, false
+	}
+	victims := make([]string, 0, len(committed))
+	for id := range committed {
+		victims = append(victims, id)
+	}
+	sort.Strings(victims)
+	return victims, true
 }
 
 // Requeue returns the job as it must re-enter the queue after
