@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/AbhiDubz/Marshall/pkg/metrics"
 	"github.com/AbhiDubz/Marshall/pkg/rpc/marshalpb"
 	"github.com/AbhiDubz/Marshall/pkg/sched"
 	"github.com/AbhiDubz/Marshall/pkg/store"
@@ -48,10 +49,11 @@ func (c *Config) defaults() {
 type Server struct {
 	marshalpb.UnimplementedControlPlaneServer
 
-	st    FullStore
-	sched sched.Scheduler
-	cfg   Config
-	now   func() time.Time
+	st      FullStore
+	sched   sched.Scheduler
+	cfg     Config
+	now     func() time.Time
+	metrics *metrics.Registry // optional
 
 	mu         sync.Mutex
 	agentAddrs map[string]string // nodeID -> dial address
@@ -80,6 +82,9 @@ func New(st FullStore, scheduler sched.Scheduler, cfg Config) *Server {
 
 // SetClock injects a clock for tests.
 func (s *Server) SetClock(now func() time.Time) { s.now = now }
+
+// SetMetrics attaches Prometheus instrumentation.
+func (s *Server) SetMetrics(m *metrics.Registry) { s.metrics = m }
 
 // SetAgentDialer injects an agent dialer for tests.
 func (s *Server) SetAgentDialer(d func(ctx context.Context, addr string) (marshalpb.AgentClient, error)) {
@@ -322,6 +327,9 @@ func (s *Server) ReportJob(ctx context.Context, req *marshalpb.ReportJobRequest)
 		return nil, status.Errorf(codes.Aborted, "%v", err)
 	}
 	s.releaseAllocation(ctx, job)
+	if s.metrics != nil {
+		s.metrics.JobsFinished.WithLabelValues(string(to)).Inc()
+	}
 	log.Printf("job %s attempt %d finished: %s (exit=%d)", jobID, attempt, to, req.GetExitCode())
 	return &marshalpb.ReportJobResponse{}, nil
 }

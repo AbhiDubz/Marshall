@@ -50,8 +50,9 @@ else passes.
 - `pkg/preempt` — preemption policy (stub #5) + fair-share accounting
 - `pkg/dispatch` — exactly-once dispatch protocol (stub #6)
 - `pkg/sim` — deterministic simulator, trace generator, replay
-- `pkg/chaos` — seeded fault injection + invariant checker
-- `pkg/metrics` — Prometheus instrumentation
+- `pkg/chaos` — seeded fault injection + invariant checker (see [docs/chaos.md](docs/chaos.md))
+- `pkg/metrics` — Prometheus instrumentation (dashboard: `deploy/grafana/`)
+- `cmd/marshal-chaos` — chaos campaigns: `--seeds 1000`, replay via `--seed N`
 
 ## Quickstart
 
@@ -71,7 +72,38 @@ go build -o bin/marshal-sim ./cmd/marshal-sim
 
 # regenerate traces (committed ones use seed 42, 200 jobs)
 ./bin/marshal-sim --gen --kind bursty --seed 42 --jobs 200 --out traces/bursty.json
+
+# chaos: 1000-seed fault-injection campaign (~25s); replay any failure exactly
+go build -o bin/marshal-chaos ./cmd/marshal-chaos
+./bin/marshal-chaos --seeds 1000
+./bin/marshal-chaos --seed 137 -v
 ```
+
+## Real cluster (local dev)
+
+```bash
+docker run -d --name marshal-postgres \
+  -e POSTGRES_USER=marshal -e POSTGRES_PASSWORD=marshal -e POSTGRES_DB=marshal \
+  -p 5433:5432 postgres:16
+
+go build -o bin/marshald ./cmd/marshald
+go build -o bin/marshal-agent ./cmd/marshal-agent
+go build -o bin/marshalctl ./cmd/marshalctl
+
+./bin/marshald &                                   # gRPC :7070, /metrics :9090
+for i in 1 2 3 4; do
+  ./bin/marshal-agent --node-id node-$i --listen :707$i --advertise localhost:707$i &
+done
+
+./bin/marshalctl submit --cmd "sleep 10"
+./bin/marshalctl nodes
+```
+
+k8s manifests for the same 4-node shape are in `deploy/k8s/`; Grafana
+dashboard JSON in `deploy/grafana/`; an Ansible playbook for real
+worker nodes in `deploy/ansible/`; `Jenkinsfile` mirrors the GitHub
+Actions gates (vet, stub-aware tests, determinism check, 200-seed
+chaos campaign).
 
 ## Results
 

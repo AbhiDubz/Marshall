@@ -33,12 +33,18 @@ written. Deviations:
 - `container` (Apple's native container CLI) is not installed and needs
   brew → skipped. `colima`/`k3d` likewise unavailable without brew.
 - Per the brief, M0/M1 run entirely against the in-process simulator,
-  which needs no cluster. M0.5's daemons are built and unit-tested
-  locally; the k8s manifests under `deploy/` are written for a 4-node
-  cluster and were validated with `kubectl --dry-run=client` only,
-  since no cluster runtime could be installed without admin rights.
-  Wire them up on a machine with brew by following `deploy/README.md`.
-- `kubectl` and `docker` were already present and are used.
+  which needs no cluster. M0.5's acceptance was run for real with
+  local processes: marshald + 4 marshal-agent processes against the
+  Postgres container — `marshalctl submit --cmd "sleep 10"` reached
+  COMPLETED and `marshalctl nodes` showed 4 healthy nodes.
+- The k8s manifests under `deploy/k8s/` could not be applied to a live
+  cluster (no cluster runtime installable without admin). The
+  installed kubectl requires a reachable API server even for
+  `--dry-run=client`, and kubeconform's schema download stalls from
+  this network, so validation here was YAML-parse only. Apply them on
+  a machine with a cluster before trusting field names.
+- `kubectl` and `docker` were already present; docker is used for
+  Postgres and (optionally) the agent's `--runner=docker`.
 
 ## protoc
 

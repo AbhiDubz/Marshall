@@ -1,0 +1,108 @@
+{
+  "title": "marshal",
+  "uid": "marshal-main",
+  "schemaVersion": 39,
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Queue depth by state",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "marshal_queue_depth",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Node CPU utilization",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 } },
+      "targets": [
+        {
+          "expr": "marshal_node_utilization_ratio{resource=\"cpu\"}",
+          "legendFormat": "{{node}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Job wait p50 / p95 by priority (5m windows)",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, priority) (rate(marshal_job_wait_seconds_bucket[5m])))",
+          "legendFormat": "p50 prio {{priority}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, priority) (rate(marshal_job_wait_seconds_bucket[5m])))",
+          "legendFormat": "p95 prio {{priority}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Preemption rate",
+      "gridPos": { "x": 12, "y": 8, "w": 6, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "expr": "rate(marshal_preemptions_total[5m])",
+          "legendFormat": "preemptions/s"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Healthy nodes",
+      "gridPos": { "x": 18, "y": 8, "w": 6, "h": 4 },
+      "targets": [{ "expr": "marshal_nodes_healthy" }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Dispatch requeue ratio (5m)",
+      "gridPos": { "x": 18, "y": 12, "w": 6, "h": 4 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [
+        {
+          "expr": "sum(rate(marshal_dispatches_total{outcome=\"requeued\"}[5m])) / clamp_min(sum(rate(marshal_dispatches_total[5m])), 1e-9)"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Jobs finished by state",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(marshal_jobs_finished_total[5m])",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Scheduler cycles",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(marshal_schedule_cycles_total[5m])",
+          "legendFormat": "cycles/s"
+        }
+      ]
+    }
+  ]
+}

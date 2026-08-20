@@ -7,6 +7,7 @@ import (
 	"flag"
 	"log"
 	"net"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/AbhiDubz/Marshall/pkg/alloc"
 	"github.com/AbhiDubz/Marshall/pkg/controlplane"
+	"github.com/AbhiDubz/Marshall/pkg/metrics"
 	"github.com/AbhiDubz/Marshall/pkg/rpc/marshalpb"
 	"github.com/AbhiDubz/Marshall/pkg/sched"
 	"github.com/AbhiDubz/Marshall/pkg/store"
@@ -23,10 +25,11 @@ import (
 
 func main() {
 	var (
-		listen    = flag.String("listen", ":7070", "gRPC listen address")
-		dsn       = flag.String("dsn", "postgres://marshal:marshal@localhost:5433/marshal?sslmode=disable", "Postgres DSN")
-		schedName = flag.String("sched", "fifo", "scheduler policy")
-		allocName = flag.String("alloc", "firstfit", "allocator")
+		listen        = flag.String("listen", ":7070", "gRPC listen address")
+		metricsListen = flag.String("metrics-listen", ":9090", "Prometheus /metrics address (empty to disable)")
+		dsn           = flag.String("dsn", "postgres://marshal:marshal@localhost:5433/marshal?sslmode=disable", "Postgres DSN")
+		schedName     = flag.String("sched", "fifo", "scheduler policy")
+		allocName     = flag.String("alloc", "firstfit", "allocator")
 	)
 	flag.Parse()
 
@@ -55,6 +58,19 @@ func main() {
 	}
 
 	srv := controlplane.New(st, policy, controlplane.Config{})
+
+	if *metricsListen != "" {
+		reg := metrics.New()
+		srv.SetMetrics(reg)
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", reg.Handler())
+		go func() {
+			log.Printf("metrics on %s/metrics", *metricsListen)
+			if err := http.ListenAndServe(*metricsListen, mux); err != nil {
+				log.Printf("metrics server: %v", err)
+			}
+		}()
+	}
 
 	// Leader election: only the advisory-lock holder runs the
 	// scheduling loop (see ADR-0005). The API serves regardless —

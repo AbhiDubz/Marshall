@@ -60,6 +60,19 @@ func (s *Server) ScheduleOnce(ctx context.Context) error {
 		}
 	}
 
+	if s.metrics != nil {
+		s.metrics.ScheduleCycles.Inc()
+		all, err := s.st.ListJobs(ctx)
+		if err == nil {
+			counts := make(map[types.JobState]int)
+			for _, j := range all {
+				counts[j.State]++
+			}
+			s.metrics.SnapshotJobs(counts)
+		}
+		s.metrics.SnapshotNodes(nodes, len(healthy))
+	}
+
 	if len(pending) == 0 || len(healthy) == 0 {
 		return nil
 	}
@@ -118,6 +131,9 @@ func (s *Server) dispatch(ctx context.Context, a types.Allocation, now time.Time
 				_, _ = agent.KillJob(ctx, &marshalpb.KillJobRequest{Token: token})
 			}
 		}
+		if s.metrics != nil {
+			s.metrics.Dispatches.WithLabelValues("requeued").Inc()
+		}
 		_, err := s.st.TransitionJob(ctx, a.JobID, types.Scheduled, types.Pending, now)
 		return err
 	}
@@ -139,6 +155,10 @@ func (s *Server) dispatch(ctx context.Context, a types.Allocation, now time.Time
 				}
 			}
 		}
+	}
+	if s.metrics != nil {
+		s.metrics.Dispatches.WithLabelValues("ok").Inc()
+		s.metrics.ObserveWait(job.Priority, now.Sub(job.SubmitAt).Seconds())
 	}
 	log.Printf("job %s attempt %d running on %v", job.ID, job.Attempt, a.NodeIDs)
 	return nil

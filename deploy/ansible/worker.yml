@@ -1,0 +1,79 @@
+# Provision a marshal worker node (Linux, systemd).
+#
+#   ansible-playbook -i inventory.ini deploy/ansible/worker.yml \
+#     -e marshald_addr=10.0.0.10:7070
+#
+# Expects a prebuilt linux binary at deploy/ansible/files/marshal-agent
+# (build with: GOOS=linux GOARCH=arm64 go build -o deploy/ansible/files/marshal-agent ./cmd/marshal-agent)
+---
+- name: marshal worker node
+  hosts: workers
+  become: true
+  vars:
+    marshald_addr: "localhost:7070"
+    agent_listen: ":7071"
+    agent_user: marshal
+    agent_cpu_millis: 4000
+    agent_memory_bytes: 8589934592
+  tasks:
+    - name: create service user
+      ansible.builtin.user:
+        name: "{{ agent_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+    - name: install agent binary
+      ansible.builtin.copy:
+        src: files/marshal-agent
+        dest: /usr/local/bin/marshal-agent
+        mode: "0755"
+        owner: root
+        group: root
+      notify: restart marshal-agent
+
+    - name: systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/marshal-agent.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=marshal worker agent
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User={{ agent_user }}
+          ExecStart=/usr/local/bin/marshal-agent \
+            --node-id %H \
+            --listen {{ agent_listen }} \
+            --advertise {{ ansible_default_ipv4.address }}{{ agent_listen }} \
+            --server {{ marshald_addr }} \
+            --cpu-millis {{ agent_cpu_millis }} \
+            --memory-bytes {{ agent_memory_bytes }} \
+            --runner exec
+          Restart=always
+          RestartSec=2
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart marshal-agent
+
+    - name: open agent port
+      ansible.builtin.command: >-
+        sh -c "command -v ufw >/dev/null && ufw allow 7071/tcp || true"
+      changed_when: false
+
+    - name: enable and start
+      ansible.builtin.systemd:
+        name: marshal-agent
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: restart marshal-agent
+      ansible.builtin.systemd:
+        name: marshal-agent
+        state: restarted
+        daemon_reload: true
