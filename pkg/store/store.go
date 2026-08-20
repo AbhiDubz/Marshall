@@ -29,12 +29,12 @@ var (
 
 // Event is one record in the append-only log.
 type Event struct {
-	ID    int64
-	At    time.Time
-	JobID string
-	Kind  string // "job_created", "job_state", "node_upsert", "alloc", ...
-	From  types.JobState
-	To    types.JobState
+	ID     int64
+	At     time.Time
+	JobID  string
+	Kind   string // "job_created", "job_state", "node_upsert", "alloc", ...
+	From   types.JobState
+	To     types.JobState
 	Detail string
 }
 

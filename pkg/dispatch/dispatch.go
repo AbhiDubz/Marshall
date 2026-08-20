@@ -89,13 +89,13 @@ type Dispatcher struct {
 //     Start. Start is idempotent by token — the agent's dedupe table
 //     guarantees at most one execution per token no matter how many
 //     times this step runs. Three outcomes:
-//       - success: the agent accepted (is running or already ran it);
-//       - error, leader alive: return the error; the caller requeues
-//         (SCHEDULED -> PENDING bumps Attempt, minting a fresh token,
-//         and heartbeat fencing kills any zombie of the old token);
-//       - leader dies mid-call: the ambiguous window. The INTENT in
-//         the WAL is exactly the breadcrumb the next leader needs:
-//         Recover probes the agent to learn whether Start landed.
+//     - success: the agent accepted (is running or already ran it);
+//     - error, leader alive: return the error; the caller requeues
+//     (SCHEDULED -> PENDING bumps Attempt, minting a fresh token,
+//     and heartbeat fencing kills any zombie of the old token);
+//     - leader dies mid-call: the ambiguous window. The INTENT in
+//     the WAL is exactly the breadcrumb the next leader needs:
+//     Recover probes the agent to learn whether Start landed.
 //
 //  4. WAL COMMIT. Append DISPATCH_COMMIT{token}. From here on every
 //     future leader knows the agent has the job, even if the store

@@ -31,15 +31,7 @@ pipeline {
         }
         stage('test') {
             steps {
-                // The six stub suites fail until implemented; only a
-                // non-stub package failure fails the build.
-                sh '''
-                    set -o pipefail
-                    go test ./... 2>&1 | tee test.out || true
-                    if grep -E '^FAIL\\s+\\S+' test.out | grep -v -E 'pkg/(alloc|sched|preempt|dispatch)\\s'; then
-                        echo "non-stub package failed"; exit 1
-                    fi
-                '''
+                sh 'go test ./...'
             }
         }
         stage('determinism') {
@@ -52,11 +44,14 @@ pipeline {
                 '''
             }
         }
-        stage('chaos 200') {
+        stage('chaos') {
             steps {
                 sh '''
                     go build -o bin/marshal-chaos ./cmd/marshal-chaos
                     ./bin/marshal-chaos --seeds 200
+                    ./bin/marshal-chaos --seeds 100 --sched backfill
+                    ./bin/marshal-chaos --seeds 100 --sched gang
+                    ./bin/marshal-chaos --seeds 100 --alloc binpack
                 '''
             }
         }

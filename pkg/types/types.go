@@ -115,7 +115,7 @@ const (
 // legalTransitions is the job state machine. A job may only move along
 // these edges; the store rejects anything else.
 var legalTransitions = map[JobState][]JobState{
-	Pending:   {Scheduled, Failed}, // -> Failed: cancellation before scheduling
+	Pending:   {Scheduled, Failed},        // -> Failed: cancellation before scheduling
 	Scheduled: {Running, Pending, Failed}, // -> Pending: dispatch failed, requeue
 	Running:   {Completed, Failed, Preempted},
 	Preempted: {Pending}, // requeue with Attempt+1
@@ -145,15 +145,15 @@ func ValidateTransition(from, to JobState) error {
 
 // Job is a unit of work submitted to the scheduler.
 type Job struct {
-	ID          string
-	User        string
-	Priority    int           // higher runs first
-	Request     ResourceSpec  // per node
-	NodeCount   int           // >1 means gang job: all-or-nothing
-	EstRuntime  time.Duration // user estimate, may be wrong
-	SubmitAt    time.Time
-	State       JobState
-	Attempt     int
+	ID         string
+	User       string
+	Priority   int           // higher runs first
+	Request    ResourceSpec  // per node
+	NodeCount  int           // >1 means gang job: all-or-nothing
+	EstRuntime time.Duration // user estimate, may be wrong
+	SubmitAt   time.Time
+	State      JobState
+	Attempt    int
 }
 
 // Clone returns a deep copy of the job.

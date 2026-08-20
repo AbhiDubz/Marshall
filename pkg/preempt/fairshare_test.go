@@ -10,7 +10,7 @@ import (
 
 func TestFairShareDecayHalvesAtHalfLife(t *testing.T) {
 	f := NewFairShare(time.Hour)
-	req := types.ResourceSpec{CPUMillis: 2000} // 2 cores
+	req := types.ResourceSpec{CPUMillis: 2000}     // 2 cores
 	f.Record(t0, "alice", req, 1, 100*time.Second) // 200 core-seconds
 
 	if got := f.Usage(t0, "alice"); math.Abs(got-200) > 1e-9 {
@@ -27,7 +27,7 @@ func TestFairShareDecayHalvesAtHalfLife(t *testing.T) {
 func TestFairShareAccumulatesAcrossRecords(t *testing.T) {
 	f := NewFairShare(time.Hour)
 	req := types.ResourceSpec{CPUMillis: 1000}
-	f.Record(t0, "bob", req, 4, 100*time.Second)               // gang: 4 nodes -> 400 cs
+	f.Record(t0, "bob", req, 4, 100*time.Second)                // gang: 4 nodes -> 400 cs
 	f.Record(t0.Add(time.Hour), "bob", req, 1, 100*time.Second) // +100 cs, old halved
 	if got := f.Usage(t0.Add(time.Hour), "bob"); math.Abs(got-300) > 1e-6 {
 		t.Fatalf("got %f want 300 (400/2 + 100)", got)

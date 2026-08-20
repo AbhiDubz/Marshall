@@ -266,8 +266,8 @@ func (s *PGStore) ListNodes(ctx context.Context) ([]types.Node, error) {
 	var out []types.Node
 	for rows.Next() {
 		var (
-			n                 types.Node
-			gres, allocGres   []byte
+			n               types.Node
+			gres, allocGres []byte
 		)
 		if err := rows.Scan(&n.ID, &n.Capacity.CPUMillis, &n.Capacity.MemoryBytes, &gres,
 			&n.Allocated.CPUMillis, &n.Allocated.MemoryBytes, &allocGres,

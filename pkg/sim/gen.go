@@ -108,7 +108,7 @@ func genBimodal(rng *rand.Rand, t *Trace, jobs int) {
 			j.Priority = 5 + rng.Intn(5)
 			j.CPUMillis = 4000
 			j.MemoryBytes = int64(8+rng.Intn(8)) << 30
-			j.NodeCount = 2 + rng.Intn(3)                       // 2–4 nodes
+			j.NodeCount = 2 + rng.Intn(3)                      // 2–4 nodes
 			j.EstRuntimeMS = int64(600000 + rng.Intn(1200000)) // 10–30 min
 			if rng.Float64() < 0.3 {
 				j.GRES = map[string]int{"gpu": 1 + rng.Intn(2)}

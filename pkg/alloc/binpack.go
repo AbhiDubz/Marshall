@@ -24,26 +24,26 @@ func init() { register("binpack", func() Allocator { return BinPackAllocator{} }
 //     placement, and prefer, in order:
 //
 //     a. EXACT FITS FIRST. If placing req consumes the node's
-//        remaining resources exactly (available - req is zero in
-//        every dimension, including every GRES kind), that node is
-//        strictly preferred over any inexact fit: an exact fit
-//        creates zero new fragments.
+//     remaining resources exactly (available - req is zero in
+//     every dimension, including every GRES kind), that node is
+//     strictly preferred over any inexact fit: an exact fit
+//     creates zero new fragments.
 //
 //     b. FULLER NODES FIRST. Among inexact fits, prefer the node
-//        whose available capacity is smallest relative to the
-//        request — i.e. pack onto already-busy nodes and keep empty
-//        nodes pristine. Concretely: score by the normalized dot
-//        product of leftover-after-placement across dimensions
-//        (CPU, memory, each GRES kind, each normalized by node
-//        capacity in that dimension); lower leftover score wins.
-//        This is the classic "best fit decreasing on the aligned
-//        vector" bin-packing heuristic.
+//     whose available capacity is smallest relative to the
+//     request — i.e. pack onto already-busy nodes and keep empty
+//     nodes pristine. Concretely: score by the normalized dot
+//     product of leftover-after-placement across dimensions
+//     (CPU, memory, each GRES kind, each normalized by node
+//     capacity in that dimension); lower leftover score wins.
+//     This is the classic "best fit decreasing on the aligned
+//     vector" bin-packing heuristic.
 //
 //     c. GRES CONSERVATION. A request with no GRES must prefer a
-//        node without GRES over an otherwise-equal node with free
-//        GRES: burning a CPU-only job on a GPU node strands the
-//        GPU. Treat free GRES on a candidate as additional leftover
-//        weight when the request has none.
+//     node without GRES over an otherwise-equal node with free
+//     GRES: burning a CPU-only job on a GPU node strands the
+//     GPU. Treat free GRES on a candidate as additional leftover
+//     weight when the request has none.
 //
 //     d. Tie-break by node ID ascending.
 //

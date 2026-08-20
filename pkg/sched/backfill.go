@@ -56,12 +56,12 @@ func init() {
 //
 //     a. it fits on the current working node set, AND
 //     b. it cannot delay the reservation, meaning either
-//        - now + candidate.EstRuntime <= R (it is projected to be
-//          gone before the blocker needs the nodes), in which case
-//          it may use any free nodes including those in S; or
-//        - it can be placed entirely on nodes NOT in S (call the
-//          allocator on the working set minus S), in which case its
-//          runtime does not matter.
+//     - now + candidate.EstRuntime <= R (it is projected to be
+//     gone before the blocker needs the nodes), in which case
+//     it may use any free nodes including those in S; or
+//     - it can be placed entirely on nodes NOT in S (call the
+//     allocator on the working set minus S), in which case its
+//     runtime does not matter.
 //
 //     Candidates that start are charged to the working set. Note the
 //     EstRuntime used in (b) is the *candidate's own estimate*; a
@@ -173,7 +173,7 @@ func (s *BackfillScheduler) Schedule(now time.Time, queue []types.Job, nodes []t
 //     running allocation a, the job's resources on a.NodeIDs are
 //     projected to release at
 //
-//         e(a) = max(a.StartAt + EstRuntime(a.JobID), now)
+//     e(a) = max(a.StartAt + EstRuntime(a.JobID), now)
 //
 //     where EstRuntime comes from s.Lookup. The max(..., now) clamp is
 //     the overrun rule: a job past its estimate is treated as "could

@@ -53,8 +53,8 @@ func NewChecker(w *World) *Checker {
 	return c
 }
 
-func (c *Checker) acceptedCompletion(jobID string)   { c.accepted[jobID]++ }
-func (c *Checker) jobStarted(jobID string, tick int) { c.startedAt[jobID] = tick }
+func (c *Checker) acceptedCompletion(jobID string)    { c.accepted[jobID]++ }
+func (c *Checker) jobStarted(jobID string, tick int)  { c.startedAt[jobID] = tick }
 func (c *Checker) jobRequeued(jobID string, tick int) { c.enqueuedAt[jobID] = tick }
 
 func (c *Checker) violation(w *World, invariant, format string, args ...any) error {

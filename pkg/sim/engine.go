@@ -21,7 +21,7 @@ type Engine struct {
 	clock   time.Time
 	nodes   []types.Node
 	jobs    map[string]*simJob
-	pending []string          // job IDs, insertion order (sorted per cycle)
+	pending []string // job IDs, insertion order (sorted per cycle)
 	running map[string]*simJob
 	events  eventHeap
 	seq     int64

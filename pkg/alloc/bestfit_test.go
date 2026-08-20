@@ -9,7 +9,7 @@ import (
 
 func TestBestFitPicksTightestNode(t *testing.T) {
 	nodes := []types.Node{
-		mkNode("n1", 8000, 16, nil),                     // loose
+		mkNode("n1", 8000, 16, nil),                      // loose
 		withAlloc(mkNode("n2", 8000, 16, nil), 6000, 12), // 2000m/4G free: tight
 		mkNode("n3", 8000, 16, nil),
 	}

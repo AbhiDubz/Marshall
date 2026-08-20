@@ -28,23 +28,18 @@ jobs:
           go-version: "1.27"
       - name: vet
         run: go vet ./...
-      - name: unit tests (six stub suites are expected to fail until implemented)
-        run: |
-          set -o pipefail
-          go test ./... 2>&1 | tee test.out || true
-          # Fail CI only if a NON-stub package fails. Stub suites live in
-          # pkg/alloc (binpack), pkg/sched (backfill, gang), pkg/preempt
-          # (victims), pkg/dispatch (exactly-once).
-          if grep -E '^FAIL\s+\S+' test.out | grep -v -E 'pkg/(alloc|sched|preempt|dispatch)\s'; then
-            echo "non-stub package failed"; exit 1
-          fi
+      - name: unit tests
+        run: go test ./...
       - name: determinism gate (two identical sim runs)
         run: |
           go build -o bin/marshal-sim ./cmd/marshal-sim
           ./bin/marshal-sim --trace traces/uniform.json --sched fifo --alloc firstfit --seed 42 > run1.txt
           ./bin/marshal-sim --trace traces/uniform.json --sched fifo --alloc firstfit --seed 42 > run2.txt
           cmp run1.txt run2.txt
-      - name: chaos campaign (200 seeds)
+      - name: chaos campaigns (200 seeds fifo, 100 each backfill/gang/binpack)
         run: |
           go build -o bin/marshal-chaos ./cmd/marshal-chaos
           ./bin/marshal-chaos --seeds 200
+          ./bin/marshal-chaos --seeds 100 --sched backfill
+          ./bin/marshal-chaos --seeds 100 --sched gang
+          ./bin/marshal-chaos --seeds 100 --alloc binpack

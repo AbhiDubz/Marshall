@@ -80,7 +80,7 @@ type message struct {
 }
 
 type nodeView struct {
-	lastSeen  int // tick of last heartbeat
+	lastSeen  int    // tick of last heartbeat
 	state     string // "alive", "dead", "readmitting"
 	allocated types.ResourceSpec
 
@@ -114,12 +114,12 @@ type controller struct {
 
 // Config sizes one chaos run.
 type Config struct {
-	Nodes     int
-	Jobs      int
-	Horizon   int // ticks
-	HealBy    int // ticks; all faults end before this
-	Scheduler string
-	Allocator string
+	Nodes      int
+	Jobs       int
+	Horizon    int // ticks
+	HealBy     int // ticks; all faults end before this
+	Scheduler  string
+	Allocator  string
 	StartBound time.Duration // max queue wait before the starvation invariant fires
 }
 
@@ -147,8 +147,8 @@ func (c *Config) defaults() {
 	}
 }
 
-const hbPeriodTicks = 6      // heartbeat every 3s
-const hbTimeoutTicks = 30    // dead after 15s silent
+const hbPeriodTicks = 6   // heartbeat every 3s
+const hbTimeoutTicks = 30 // dead after 15s silent
 
 var chaosEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 

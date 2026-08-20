@@ -25,7 +25,7 @@ type FairShare struct {
 }
 
 type decayed struct {
-	value float64   // core-seconds, decayed as of `asOf`
+	value float64 // core-seconds, decayed as of `asOf`
 	asOf  time.Time
 }
 

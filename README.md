@@ -5,21 +5,19 @@ backed control plane, node agents, and a deterministic in-memory
 cluster simulator where the scheduling algorithms are developed and
 measured.
 
-Six functions are deliberately **stubbed** (`panic("not implemented")`)
-with complete failing test suites — they are the owner's to implement:
+Six functions were built test-first: each began as a documented stub
+with a complete failing suite specifying its algorithm and invariants,
+then was implemented against that suite. All six are done and
+`go test ./...` is fully green.
 
-| # | Function | Suite |
-|---|---|---|
-| 1 | `alloc.BinPackAllocator.Fit` | `pkg/alloc/binpack_test.go` |
-| 2 | `sched.BackfillScheduler.Schedule` | `pkg/sched/backfill_test.go` |
-| 3 | `sched.BackfillScheduler.computeReservation` | `pkg/sched/backfill_test.go` |
-| 4 | `sched.GangScheduler.accumulate` | `pkg/sched/gang_test.go` |
-| 5 | `preempt.Policy.SelectVictims` | `pkg/preempt/policy_test.go` |
-| 6 | `dispatch.Dispatcher.dispatchExactlyOnce` | `pkg/dispatch/dispatch_test.go` |
-
-Each stub's doc comment specifies the algorithm and the invariants its
-tests check. `go test ./...` fails exactly these suites; everything
-else passes.
+| # | Function | Spec + suite | Decision record |
+|---|---|---|---|
+| 1 | `alloc.BinPackAllocator.Fit` | `pkg/alloc/binpack_test.go` | ADR-0007 |
+| 2 | `sched.BackfillScheduler.Schedule` | `pkg/sched/backfill_test.go` | ADR-0008 |
+| 3 | `sched.BackfillScheduler.computeReservation` | `pkg/sched/backfill_test.go` | ADR-0008 |
+| 4 | `sched.GangScheduler.accumulate` | `pkg/sched/gang_test.go` | ADR-0009 |
+| 5 | `preempt.Policy.SelectVictims` | `pkg/preempt/policy_test.go` | ADR-0010 |
+| 6 | `dispatch.Dispatcher.dispatchExactlyOnce` | `pkg/dispatch/dispatch_test.go` | ADR-0011 |
 
 ## Architecture
 
@@ -45,10 +43,10 @@ else passes.
 
 - `pkg/types` — Job, Node, ResourceSpec, Allocation, the job state machine
 - `pkg/store` — Postgres store + append-only event log (+ in-memory twin)
-- `pkg/alloc` — firstfit, bestfit (working); binpack (stub #1)
-- `pkg/sched` — fifo (working); backfill (stubs #2, #3); gang (stub #4)
-- `pkg/preempt` — preemption policy (stub #5) + fair-share accounting
-- `pkg/dispatch` — exactly-once dispatch protocol (stub #6)
+- `pkg/alloc` — firstfit, bestfit, binpack allocators
+- `pkg/sched` — fifo, EASY-backfill, and gang (reservation-accumulating) schedulers
+- `pkg/preempt` — minimal-victim preemption policy + fair-share accounting
+- `pkg/dispatch` — exactly-once dispatch protocol with WAL recovery
 - `pkg/sim` — deterministic simulator, trace generator, replay
 - `pkg/chaos` — seeded fault injection + invariant checker (see [docs/chaos.md](docs/chaos.md))
 - `pkg/metrics` — Prometheus instrumentation (dashboard: `deploy/grafana/`)
@@ -58,7 +56,7 @@ else passes.
 
 ```bash
 # toolchain: Go 1.22+ (see docs/setup-notes.md for this machine's setup)
-go test ./...          # passes except the six stub suites
+go test ./...          # fully green
 
 # replay a committed trace deterministically
 go build -o bin/marshal-sim ./cmd/marshal-sim
@@ -107,24 +105,52 @@ chaos campaign).
 
 ## Results
 
-Numbers are produced by real runs of `marshal-sim --compare` on the
-committed traces. Rows for stubbed policies are intentionally blank —
-fill them in after implementing the stubs; nothing here is ever
-estimated.
+Every number below is a real run of `marshal-sim --compare` over the
+committed seed-42 traces (200 jobs each); regenerate with
+`./bin/marshal-sim --compare --chart docs/compare.svg`. Nothing here
+is ever estimated.
 
-| Trace | Scheduler | Allocator | Utilization (CPU) | Mean wait | P95 wait | Makespan |
+| Trace | Scheduler | Allocator | Util (CPU) | Mean wait | P95 wait | Makespan |
 |---|---|---|---|---|---|---|
 | uniform | fifo | firstfit | 0.5318 | 3m10.07s | 10m2.358s | 1h4m57.205s |
 | uniform | fifo | bestfit | 0.5337 | 3m27.246s | 11m6.387s | 1h4m43.4s |
+| uniform | fifo | binpack | 0.5337 | 2m59.908s | 9m46.599s | 1h4m43.4s |
+| uniform | backfill | firstfit | 0.5337 | 1m54.278s | 9m12.912s | 1h4m43.4s |
+| uniform | backfill | bestfit | 0.5337 | 1m50.367s | 9m34.471s | 1h4m43.4s |
+| uniform | backfill | binpack | 0.5337 | 1m40.926s | 8m35.806s | 1h4m43.4s |
+| uniform | gang | firstfit | 0.5337 | 1m42.643s | 9m20.255s | 1h4m43.4s |
+| uniform | gang | bestfit | 0.5337 | 1m44.07s | 9m5.36s | 1h4m43.4s |
+| uniform | gang | binpack | 0.5337 | 1m39.153s | 8m38.262s | 1h4m43.4s |
 | bimodal | fifo | firstfit | 0.5711 | 21m30.296s | 1h1m58.377s | 2h0m28.621s |
 | bimodal | fifo | bestfit | 0.6040 | 24m16.374s | 1h4m21.103s | 1h53m54.69s |
+| bimodal | fifo | binpack | 0.5987 | 20m52.968s | 59m59.561s | 1h54m55.997s |
+| bimodal | backfill | firstfit | 0.6371 | 47.638s | 11m44.574s | 1h48m0.107s |
+| bimodal | backfill | bestfit | 0.6244 | 56.401s | 13m9.292s | 1h50m11.617s |
+| bimodal | backfill | binpack | 0.6010 | 43.564s | 24m19.294s | 1h54m29.502s |
+| bimodal | gang | firstfit | 0.5823 | 1m15.516s | 17m5.338s | 1h58m9.746s |
+| bimodal | gang | bestfit | **0.7052** | 37.678s | 8m21.891s | **1h25m11.576s** |
+| bimodal | gang | binpack | 0.5823 | 1m15.469s | 17m5.338s | 1h58m9.746s |
 | bursty | fifo | firstfit | 0.5218 | 38.607s | 3m54.352s | 45m1.005s |
 | bursty | fifo | bestfit | 0.5218 | 43.2s | 4m27.536s | 45m1.005s |
-| * | backfill | * | *(stubs #2/#3 pending)* | | | |
-| * | gang | * | *(stub #4 pending on gang traces)* | | | |
-| * | * | binpack | *(stub #1 pending)* | | | |
+| bursty | fifo | binpack | 0.5218 | 41.112s | 3m55.077s | 45m1.005s |
+| bursty | backfill | firstfit | 0.5104 | 32.24s | 3m59.623s | 46m1.278s |
+| bursty | backfill | bestfit | 0.5218 | 32.717s | 3m19.499s | 45m1.005s |
+| bursty | backfill | binpack | 0.5218 | 32.729s | 3m47.696s | 45m1.005s |
+| bursty | gang | firstfit | 0.5038 | 31.028s | 3m55.246s | 46m37.855s |
+| bursty | gang | bestfit | 0.5218 | 31.413s | 3m19.499s | 45m1.005s |
+| bursty | gang | binpack | 0.5218 | 31.473s | 3m47.696s | 45m1.005s |
 
-Regenerate with: `./bin/marshal-sim --compare`.
+Headlines: on the gang-heavy **bimodal** trace, EASY backfill cuts
+mean wait from ~21–24 minutes (FIFO) to under a minute, and
+reservation-accumulating gang scheduling with bestfit lifts CPU
+utilization from 0.60 to **0.71** while shaving ~29 minutes off the
+makespan. On **uniform**, backfill roughly halves mean wait. On
+**bursty**, short bursts drain quickly whatever the policy — the
+policies differ by seconds, not minutes.
+
+Chaos: `marshal-chaos --seeds 1000` (fifo) and 200-seed campaigns
+with `--sched backfill`, `--sched gang`, and `--alloc binpack` all
+pass with zero invariant violations.
 
 ## Docs
 

@@ -17,8 +17,8 @@ import (
 type Registry struct {
 	reg *prometheus.Registry
 
-	QueueDepth      *prometheus.GaugeVec   // by state
-	NodeUtilization *prometheus.GaugeVec   // by node, resource (0..1)
+	QueueDepth      *prometheus.GaugeVec // by state
+	NodeUtilization *prometheus.GaugeVec // by node, resource (0..1)
 	NodesHealthy    prometheus.Gauge
 	WaitSeconds     *prometheus.HistogramVec // by priority: submit -> start
 	Preemptions     prometheus.Counter

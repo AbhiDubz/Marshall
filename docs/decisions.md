@@ -1,8 +1,8 @@
 # Architecture decision records
 
-One entry per significant choice. ADRs for the six stubbed algorithms
-are deliberately absent: writing those is the project owner's job after
-implementing each stub (the reasoning is the artifact).
+One entry per significant choice. ADR-0007 through ADR-0011 cover the
+six functions that were built test-first as documented stubs and then
+implemented against their suites.
 
 ## ADR-0001: Determinism as a hard interface requirement
 
@@ -108,3 +108,129 @@ concerns would couple recovery correctness to audit noise.
 trigger; recovery deduplicates by token, so retried appends whose acks
 were lost are harmless. The WAL is the source of truth for "did the
 agent accept?"; the store remains the source of truth for job state.
+
+## ADR-0007: Bin packing scores normalized leftover, exact fits apart
+
+**Decision.** `BinPackAllocator` treats exact fits as their own class
+(always preferred), and otherwise scores candidates by
+leftover-after-placement summed across dimensions, each normalized by
+the node's capacity in that dimension. Lower leftover wins; ties break
+by node ID.
+
+**Context.** Classic bin packing wants "fullest node first", but
+multi-dimensional resources make "fullest" ambiguous: 500m CPU free
+means something different on a 4-core node than a 64-core node, and a
+free GPU is worth more than either. Normalizing per dimension makes
+the score scale-free, and including *all* capacity dimensions in the
+leftover means a CPU-only job placed on a GPU node is charged for the
+GPUs it would strand — GRES conservation with no special case.
+
+**Alternatives rejected.** Dot-product alignment (Tetris-style) is
+reported in the literature to pack better on adversarial mixes, but
+needs a tuned weight vector; on the committed traces (measured, table
+in README) the parameter-free normalized-leftover rule already beats
+firstfit and bestfit on wait times at equal utilization, so the
+simpler rule wins v1.
+
+**Measured.** On uniform, binpack+backfill gives the best mean wait
+of the whole matrix (1m40.926s vs 3m10.07s for fifo+firstfit).
+
+## ADR-0008: EASY backfill with a single clamped reservation
+
+**Decision.** One reservation, for the head of the queue only
+(`computeReservation`); backfill candidates start iff they are
+projected to finish by the reservation time or fit entirely on
+unreserved nodes. Overrunning jobs project their release at `now`,
+never in the past; jobs the lookup cannot resolve never release.
+Reservations are recomputed from scratch every cycle.
+
+**Context.** Estimates are user-supplied lies. Persisting reservations
+across cycles lets one bad estimate corrupt every later decision;
+recomputing each cycle bounds the damage to a single window. The
+`max(release, now)` clamp is what keeps an overrun from creating a
+reservation in the past — which would otherwise let arbitrarily long
+jobs "backfill" (they trivially finish after a past deadline is
+un-delayable... in practice it grants phantom resources; the suite
+pins this).
+
+**Alternatives rejected.** Conservative backfill (a reservation for
+every queued job) protects more jobs but costs a projection per
+queued job per cycle and was not implemented here; EASY is SLURM's
+default for the same cost/benefit reason, and the wins in the table
+below came from EASY alone.
+
+**Measured.** bimodal mean wait: 21m30s (fifo) → 47.6s (backfill),
+p95 1h1m58s → 11m44s, utilization 0.5711 → 0.6371 (firstfit).
+
+## ADR-0009: Gang scheduling by sticky hold accumulation
+
+**Decision.** The highest-priority pending gang job claims free,
+fitting nodes into a persistent hold (ID order), keeps them across
+cycles, and starts only when the hold reaches NodeCount. Held nodes
+take no other work; single-node jobs fill everything else greedily.
+One accumulating gang job at a time.
+
+**Context.** Without reservation, a k-node gang job needs k
+simultaneously free nodes — probability ~zero under sustained load:
+the starvation regression test shows a naive scheduler *never* starts
+the 4-node gang job, while accumulation starts it 9s in. Stickiness
+is the ratchet that converts "eventually k nodes free up" into a
+bounded wait (~sum of the longest small jobs).
+
+**Tradeoff accepted.** Held nodes idle while the hold fills — that is
+the price of the bound, paid only when gang jobs queue. The bimodal
+numbers show the price is negative in aggregate: gang+bestfit reaches
+0.7052 utilization vs 0.6040 for fifo+bestfit, because large jobs
+stop pinballing off transient fragmentation.
+
+**Alternatives rejected.** Time-based coscheduling windows (start a
+timer, release holds on expiry) adds a tuning knob without improving
+the bound; strict FIFO head-blocking gets the same bound by freezing
+the whole cluster, which the utilization numbers punish.
+
+## ADR-0010: Preemption picks minimal victim sets, greedily per node
+
+**Decision.** Only strictly-lower-priority jobs are preemptible. For
+each slot of the pending job, every node's cost is the shortest
+prefix of its victim list (sorted priority asc, StartAt desc, ID)
+that frees enough room; the cheapest (victim count, priority sum,
+node ID) node wins, its victims release on *every* node they occupy,
+and the final placement must be verified by the allocator or nobody
+is preempted.
+
+**Context.** True minimum-victim selection is set-cover (NP-hard);
+the greedy per-node prefix is exact for the common cases the suite
+pins (one big victim beats two small ones; one gang victim frees two
+slots) and never returns a partial answer. Strict inequality on
+priority makes cascades structurally impossible: preemption chains
+strictly descend, and requeued victims cannot touch their preemptor
+or each other — the suite asserts this end to end.
+
+**Alternatives rejected.** Cost = remaining runtime (checkpoint-aware
+preemption) needs runtime data the system defines as unreliable;
+StartAt-desc ("kill the youngest") is the assumption-free proxy for
+least work lost.
+
+## ADR-0011: Exactly-once dispatch = WAL sequencing + idempotent agents
+
+**Decision.** Dispatch is INTENT (durable) → agent Start (idempotent
+by token `jobID/attempt`) → COMMIT (durable) → CAS state change.
+Recovery replays the WAL: committed intents are finished, uncommitted
+ones are resolved by *probing the agent* — known token means commit,
+unknown means re-dispatch with the same token. A SCHEDULED job with
+no intent belongs to the normal dispatch pipeline, not recovery.
+
+**Context.** Exactly-once is impossible with one message, possible
+with an idempotency key and a durable outbox. The token doubles as
+the fencing attempt number, so the WAL, the store's CAS transitions,
+and heartbeat fencing all agree on which attempt is authoritative.
+The crash matrix kills the leader before and after every side effect;
+the ambiguous window (agent accepted, commit unrecorded) is exactly
+why Probe exists — the agent's dedupe table is the tiebreaker of
+record.
+
+**Alternatives rejected.** Two-phase commit with the agent as a
+participant adds a blocking protocol where an idempotent retry
+suffices; store-side "dispatching" flags without a WAL cannot
+distinguish "never sent" from "sent, ack lost", which is the whole
+problem.

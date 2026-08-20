@@ -154,4 +154,3 @@ func TestSimulationIsByteIdenticalAcrossRuns(t *testing.T) {
 		t.Fatal("empty report")
 	}
 }
-
