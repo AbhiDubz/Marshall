@@ -8,8 +8,6 @@ import (
 // concentrates load onto as few nodes as possible and prefers fits
 // that leave the least *unusable* slack behind, so that large jobs
 // arriving later still find whole empty nodes.
-//
-// STUB — DO NOT IMPLEMENT (stub #1). Implemented by the project owner.
 type BinPackAllocator struct{}
 
 func init() { register("binpack", func() Allocator { return BinPackAllocator{} }) }
@@ -72,7 +70,71 @@ func init() { register("binpack", func() Allocator { return BinPackAllocator{} }
 //     slice (sort before choosing), and the input slice and its nodes
 //     are never mutated.
 func (BinPackAllocator) Fit(nodes []types.Node, req types.ResourceSpec, nodeCount int) ([]string, bool) {
-	panic("not implemented")
+	if nodeCount <= 0 {
+		return nil, false
+	}
+	cands := candidates(nodes, req) // clones, sorted by ID
+	if len(cands) < nodeCount {
+		return nil, false
+	}
+	ids := make([]string, 0, nodeCount)
+	chosen := make(map[string]bool, nodeCount)
+	for slot := 0; slot < nodeCount; slot++ {
+		best := -1
+		bestExact := false
+		bestScore := 0.0
+		for i := range cands {
+			if chosen[cands[i].ID] || !cands[i].CanFit(req) {
+				continue
+			}
+			exact, score := packScore(cands[i], req)
+			if best == -1 || packBetter(exact, score, cands[i].ID, bestExact, bestScore, cands[best].ID) {
+				best, bestExact, bestScore = i, exact, score
+			}
+		}
+		if best == -1 {
+			return nil, false
+		}
+		chosen[cands[best].ID] = true
+		ids = append(ids, cands[best].ID)
+		cands[best].Allocated = cands[best].Allocated.Add(req)
+	}
+	return ids, true
+}
+
+// packScore rates placing req on n by the state it would leave behind:
+// exact fits are a class of their own (zero fragments); everything
+// else scores by leftover normalized per dimension against the node's
+// capacity, so free GRES a GRES-less request would strand weighs in
+// automatically. Lower is better.
+func packScore(n types.Node, req types.ResourceSpec) (exact bool, score float64) {
+	left := n.Available().Sub(req)
+	if left.IsZero() {
+		return true, 0
+	}
+	if n.Capacity.CPUMillis > 0 {
+		score += float64(left.CPUMillis) / float64(n.Capacity.CPUMillis)
+	}
+	if n.Capacity.MemoryBytes > 0 {
+		score += float64(left.MemoryBytes) / float64(n.Capacity.MemoryBytes)
+	}
+	for _, k := range n.Capacity.GRESKinds() {
+		if c := n.Capacity.GRES[k]; c > 0 {
+			score += float64(left.GRES[k]) / float64(c)
+		}
+	}
+	return false, score
+}
+
+// packBetter orders (exact, score, ID) lexicographically.
+func packBetter(aExact bool, aScore float64, aID string, bExact bool, bScore float64, bID string) bool {
+	if aExact != bExact {
+		return aExact
+	}
+	if aScore != bScore {
+		return aScore < bScore
+	}
+	return aID < bID
 }
 
 func (BinPackAllocator) Name() string { return "binpack" }

@@ -1,9 +1,8 @@
 package alloc
 
-// Test suite for stub #1: BinPackAllocator.Fit.
-// These tests FAIL until the stub is implemented: bpFit converts the
-// stub's panic("not implemented") into a test failure instead of
-// letting it crash the package's test binary.
+// Test suite for BinPackAllocator.Fit (formerly stub #1). bpFit keeps
+// converting any panic into a clean test failure instead of crashing
+// the package's test binary.
 
 import (
 	"reflect"
