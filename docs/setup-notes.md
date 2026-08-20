@@ -38,11 +38,13 @@ written. Deviations:
   Postgres container — `marshalctl submit --cmd "sleep 10"` reached
   COMPLETED and `marshalctl nodes` showed 4 healthy nodes.
 - The k8s manifests under `deploy/k8s/` could not be applied to a live
-  cluster (no cluster runtime installable without admin). The
+  cluster (no cluster runtime installable without admin), and the
   installed kubectl requires a reachable API server even for
-  `--dry-run=client`, and kubeconform's schema download stalls from
-  this network, so validation here was YAML-parse only. Apply them on
-  a machine with a cluster before trusting field names.
+  `--dry-run=client`. They were schema-validated instead with
+  kubeconform (via Docker; slow first run while it fetches schemas):
+  all 8 resources valid, 0 errors. Runtime behavior (image pulls,
+  DNS-based agent dial-back) is still unexercised until applied to a
+  real cluster.
 - `kubectl` and `docker` were already present; docker is used for
   Postgres and (optionally) the agent's `--runner=docker`.
 
