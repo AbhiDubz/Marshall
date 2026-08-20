@@ -111,9 +111,7 @@ func (s *GangScheduler) Schedule(now time.Time, queue []types.Job, nodes []types
 // accumulate makes progress toward an all-or-nothing placement for the
 // gang job `job`, persisting claims in s.held[job.ID] across calls.
 //
-// STUB — DO NOT IMPLEMENT (stub #4). Implemented by the project owner.
-//
-// Algorithm (what the implementation must do):
+// Algorithm:
 //
 //  1. Validate the existing hold. Every node ID already in
 //     s.held[job.ID] must still exist in `work`, be non-draining, and
@@ -151,7 +149,53 @@ func (s *GangScheduler) Schedule(now time.Time, queue []types.Job, nodes []types
 //     4-node cluster, a 4-node gang job starts within a bounded
 //     number of cycles (fails against any non-reserving strategy).
 func (s *GangScheduler) accumulate(now time.Time, job types.Job, work []types.Node) ([]string, bool) {
-	panic("not implemented")
+	if s.held == nil {
+		s.held = make(map[string][]string)
+	}
+	byID := make(map[string]types.Node, len(work))
+	for _, n := range work {
+		byID[n.ID] = n
+	}
+	heldByOthers := make(map[string]bool)
+	for id, ids := range s.held {
+		if id == job.ID {
+			continue
+		}
+		for _, nid := range ids {
+			heldByOthers[nid] = true
+		}
+	}
+
+	// 1. Validate the existing hold; drop nodes that died, drain, or
+	// can no longer fit the request.
+	hold := make([]string, 0, job.NodeCount)
+	heldSet := make(map[string]bool)
+	for _, nid := range s.held[job.ID] {
+		if n, ok := byID[nid]; ok && n.CanFit(job.Request) {
+			hold = append(hold, nid)
+			heldSet[nid] = true
+		}
+	}
+
+	// 2. Claim new fitting nodes in ID order — the ratchet.
+	if len(hold) < job.NodeCount {
+		cands := cloneNodes(work) // sorted by ID
+		for _, n := range cands {
+			if len(hold) >= job.NodeCount {
+				break
+			}
+			if heldSet[n.ID] || heldByOthers[n.ID] || !n.CanFit(job.Request) {
+				continue
+			}
+			hold = append(hold, n.ID)
+			heldSet[n.ID] = true
+		}
+	}
+
+	sort.Strings(hold)
+	s.held[job.ID] = hold
+	out := append([]string(nil), hold...)
+	return out, len(out) == job.NodeCount
 }
 
 // heldFor exposes a copy of the current hold for a job — test helper

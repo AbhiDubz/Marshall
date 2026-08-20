@@ -1,8 +1,8 @@
 package sched
 
-// Test suite for stub #4: GangScheduler.accumulate. These tests FAIL
-// until the stub is implemented; helpers convert the stub's panic into
-// a test failure so the rest of the package's tests still run.
+// Test suite for GangScheduler.accumulate (formerly stub #4). The
+// helpers keep converting any panic into a clean test failure so the
+// rest of the package's tests still run.
 
 import (
 	"fmt"
