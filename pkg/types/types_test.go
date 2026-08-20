@@ -94,6 +94,7 @@ func TestNodeAvailableAndCanFit(t *testing.T) {
 func TestStateMachine(t *testing.T) {
 	legal := [][2]JobState{
 		{Pending, Scheduled},
+		{Pending, Failed}, // cancel before scheduling
 		{Scheduled, Running},
 		{Scheduled, Pending},
 		{Scheduled, Failed},

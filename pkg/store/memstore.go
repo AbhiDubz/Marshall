@@ -14,12 +14,13 @@ import (
 // harness, and tests. Semantics mirror PGStore exactly; the shared
 // conformance suite in store_test.go keeps them honest.
 type MemStore struct {
-	mu     sync.Mutex
-	jobs   map[string]types.Job
-	nodes  map[string]types.Node
-	allocs map[string]map[int]types.Allocation // jobID -> attempt -> alloc
-	events []Event
-	nextID int64
+	mu       sync.Mutex
+	jobs     map[string]types.Job
+	nodes    map[string]types.Node
+	allocs   map[string]map[int]types.Allocation // jobID -> attempt -> alloc
+	payloads map[string]string
+	events   []Event
+	nextID   int64
 }
 
 // NewMemStore returns an empty in-memory store.

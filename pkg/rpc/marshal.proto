@@ -1,0 +1,129 @@
+// marshal control plane and agent protocol.
+//
+// Regenerate with deploy/tools.sh gen-proto (protoc + protoc-gen-go +
+// protoc-gen-go-grpc); generated code is committed under
+// pkg/rpc/marshalpb so builds never require protoc.
+syntax = "proto3";
+
+package marshal.v1;
+
+option go_package = "github.com/AbhiDubz/Marshall/pkg/rpc/marshalpb";
+
+// ---- shared messages ----
+
+message ResourceSpec {
+  int64 cpu_millis = 1;
+  int64 memory_bytes = 2;
+  map<string, int64> gres = 3;
+}
+
+message JobSpec {
+  string user = 1;
+  int32 priority = 2;
+  ResourceSpec request = 3;   // per node
+  int32 node_count = 4;       // >1 = gang
+  int64 est_runtime_ms = 5;
+  string cmd = 6;             // shell command the agent executes
+}
+
+message JobInfo {
+  string id = 1;
+  JobSpec spec = 2;
+  string state = 3;           // PENDING/SCHEDULED/RUNNING/COMPLETED/FAILED/PREEMPTED
+  int32 attempt = 4;
+  int64 submit_at_unix_ms = 5;
+  repeated string node_ids = 6; // last known placement
+}
+
+message NodeInfo {
+  string id = 1;
+  ResourceSpec capacity = 2;
+  ResourceSpec allocated = 3;
+  int64 last_heartbeat_unix_ms = 4;
+  bool draining = 5;
+  bool healthy = 6;
+}
+
+// ---- control plane service (marshalctl and agents -> marshald) ----
+
+service ControlPlane {
+  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc GetJob(GetJobRequest) returns (JobInfo);
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc ReportJob(ReportJobRequest) returns (ReportJobResponse);
+}
+
+message SubmitJobRequest { JobSpec spec = 1; }
+message SubmitJobResponse { string job_id = 1; }
+
+message GetJobRequest { string job_id = 1; }
+
+message CancelJobRequest { string job_id = 1; }
+message CancelJobResponse { string state = 1; }
+
+message ListJobsRequest { repeated string states = 1; }
+message ListJobsResponse { repeated JobInfo jobs = 1; }
+
+message ListNodesRequest {}
+message ListNodesResponse { repeated NodeInfo nodes = 1; }
+
+message RegisterNodeRequest {
+  string node_id = 1;        // empty = assign one
+  string agent_addr = 2;     // host:port marshald dials back on
+  ResourceSpec capacity = 3;
+}
+message RegisterNodeResponse { string node_id = 1; }
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string agent_addr = 2;
+  repeated string running_tokens = 3; // tokens of attempts running on the node
+}
+message HeartbeatResponse {
+  repeated string kill_tokens = 1;   // fenced-out attempts to kill
+}
+
+message ReportJobRequest {
+  string token = 1;    // jobID/attempt
+  bool success = 2;
+  int32 exit_code = 3;
+  string message = 4;
+}
+message ReportJobResponse {}
+
+// ---- agent service (marshald -> marshal-agent) ----
+
+service Agent {
+  // StartJob is idempotent by token: re-sending a known token never
+  // starts a second execution.
+  rpc StartJob(StartJobRequest) returns (StartJobResponse);
+  // ProbeToken reports whether the agent has ever accepted the token.
+  rpc ProbeToken(ProbeTokenRequest) returns (ProbeTokenResponse);
+  rpc KillJob(KillJobRequest) returns (KillJobResponse);
+}
+
+message StartJobRequest {
+  string token = 1;
+  string job_id = 2;
+  int32 attempt = 3;
+  string cmd = 4;
+  ResourceSpec request = 5;
+}
+message StartJobResponse {
+  bool already_known = 1; // token was a duplicate; no new execution
+}
+
+message ProbeTokenRequest { string token = 1; }
+message ProbeTokenResponse {
+  bool known = 1;
+  bool finished = 2;
+  bool success = 3;
+}
+
+message KillJobRequest { string token = 1; }
+message KillJobResponse { bool was_running = 1; }

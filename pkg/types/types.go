@@ -115,7 +115,7 @@ const (
 // legalTransitions is the job state machine. A job may only move along
 // these edges; the store rejects anything else.
 var legalTransitions = map[JobState][]JobState{
-	Pending:   {Scheduled},
+	Pending:   {Scheduled, Failed}, // -> Failed: cancellation before scheduling
 	Scheduled: {Running, Pending, Failed}, // -> Pending: dispatch failed, requeue
 	Running:   {Completed, Failed, Preempted},
 	Preempted: {Pending}, // requeue with Attempt+1

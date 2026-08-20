@@ -1,0 +1,150 @@
+# marshal on Kubernetes: Postgres (dev-grade), marshald, and a 4-node
+# agent StatefulSet. Apply with:
+#   kubectl apply -f deploy/k8s/marshal.yaml
+# Images are built from deploy/Dockerfile (targets marshald /
+# marshal-agent) and must be pushed or side-loaded into the cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: marshal
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-auth
+  namespace: marshal
+stringData:
+  POSTGRES_USER: marshal
+  POSTGRES_PASSWORD: marshal
+  POSTGRES_DB: marshal
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: marshal
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          envFrom:
+            - secretRef: { name: postgres-auth }
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: marshal
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marshald
+  namespace: marshal
+spec:
+  replicas: 1 # leader election via PG advisory lock arrives in M5
+  selector:
+    matchLabels: { app: marshald }
+  template:
+    metadata:
+      labels: { app: marshald }
+    spec:
+      containers:
+        - name: marshald
+          image: marshal/marshald:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - --listen=:7070
+            - --dsn=postgres://marshal:marshal@postgres.marshal.svc:5432/marshal?sslmode=disable
+            - --sched=fifo
+            - --alloc=firstfit
+          ports:
+            - containerPort: 7070
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marshald
+  namespace: marshal
+spec:
+  selector: { app: marshald }
+  ports:
+    - port: 7070
+---
+# 4 worker "nodes": a StatefulSet gives each pod a stable identity
+# (marshal-node-0..3) used as the marshal node ID, and a stable DNS
+# name marshald dials back on.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: marshal-node
+  namespace: marshal
+spec:
+  serviceName: marshal-node
+  replicas: 4
+  selector:
+    matchLabels: { app: marshal-node }
+  template:
+    metadata:
+      labels: { app: marshal-node }
+    spec:
+      containers:
+        - name: agent
+          image: marshal/agent:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef: { fieldPath: metadata.name }
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              exec marshal-agent
+              --node-id "$(POD_NAME)"
+              --listen :7071
+              --advertise "$(POD_NAME).marshal-node.marshal.svc:7071"
+              --server marshald.marshal.svc:7070
+              --cpu-millis 4000
+              --memory-bytes 8589934592
+              --runner exec
+          ports:
+            - containerPort: 7071
+          resources:
+            limits:
+              cpu: "4"
+              memory: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: marshal-node
+  namespace: marshal
+spec:
+  clusterIP: None # headless: per-pod DNS for agent dial-back
+  selector: { app: marshal-node }
+  ports:
+    - port: 7071
