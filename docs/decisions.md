@@ -66,3 +66,45 @@ instead of silently rewinding state (`COMPLETED -> RUNNING`).
 is in — which is exactly the discipline exactly-once dispatch needs;
 `Attempt` bumps ride the same transaction so fencing tokens can never
 diverge from state history.
+
+## ADR-0005: Leader election via Postgres advisory locks (v1)
+
+**Decision.** One session-level advisory lock (`store.TryLead` /
+`WaitLead`) elects the marshald leader. No etcd, no Raft.
+
+**Context.** Postgres is already the durability root: if it is down,
+marshal cannot make progress anyway, so a separate consensus system
+would add an availability dependency without removing one.
+
+**Tradeoffs accepted.**
+- *Lease = session.* Leadership drops the instant the leader's DB
+  connection dies — fast failover, but a network blip between leader
+  and Postgres causes an election even though the leader was healthy.
+- *No self-fencing.* A deposed leader partitioned from Postgres cannot
+  know it was deposed. Mitigation: leadership grants no write
+  authority by itself — every dispatch effect goes through the WAL and
+  CAS job transitions on Postgres, so a deposed leader's writes fail
+  with conflicts instead of corrupting state. The advisory lock only
+  prevents duplicate *work*, not duplicate *authority*.
+- *Single point of contention.* Fine at v1 scale (one leader, a few
+  standbys); revisit if the control plane ever needs to shard.
+
+**Alternative rejected.** etcd/raft leases: real fencing tokens and
+Postgres-independent elections, at the cost of a second quorum system
+to operate. Wrong trade for v1.
+
+## ADR-0006: Dispatch WAL is separate from the event log
+
+**Decision.** Exactly-once dispatch writes to its own append-only
+`dispatch_wal` table (INTENT / COMMIT / ABORT by token) rather than
+reusing the `events` audit log.
+
+**Context.** The event log is an audit trail: humans and metrics read
+it, and it records everything. Recovery must scan a small,
+precisely-typed log where every record has protocol meaning; mixing
+concerns would couple recovery correctness to audit noise.
+
+**Consequences.** Two append-only tables with the same no-rewrite
+trigger; recovery deduplicates by token, so retried appends whose acks
+were lost are harmless. The WAL is the source of truth for "did the
+agent accept?"; the store remains the source of truth for job state.

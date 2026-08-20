@@ -9,6 +9,7 @@ import (
 	"net"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -54,7 +55,22 @@ func main() {
 	}
 
 	srv := controlplane.New(st, policy, controlplane.Config{})
-	go srv.RunLoop(ctx)
+
+	// Leader election: only the advisory-lock holder runs the
+	// scheduling loop (see ADR-0005). The API serves regardless —
+	// reads are safe from any replica.
+	go func() {
+		lead, err := store.WaitLead(ctx, st.Pool(), store.LeaderKey, 2*time.Second)
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Fatalf("leader election: %v", err)
+			}
+			return
+		}
+		defer lead.Release()
+		log.Printf("acquired leadership; starting scheduler loop")
+		srv.RunLoop(ctx)
+	}()
 
 	lis, err := net.Listen("tcp", *listen)
 	if err != nil {
