@@ -1,9 +1,9 @@
 package sched
 
-// Test suite for stubs #2 and #3: BackfillScheduler.Schedule and
-// BackfillScheduler.computeReservation. These tests FAIL until the
-// stubs are implemented; the helpers convert the stubs' panics into
-// test failures so the rest of the package's tests still run.
+// Test suite for BackfillScheduler.Schedule and computeReservation
+// (formerly stubs #2 and #3). The helpers keep converting any panic
+// into a clean test failure so the rest of the package's tests still
+// run.
 
 import (
 	"reflect"

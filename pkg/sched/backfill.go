@@ -1,6 +1,7 @@
 package sched
 
 import (
+	"sort"
 	"time"
 
 	"github.com/AbhiDubz/Marshall/pkg/types"
@@ -16,9 +17,6 @@ import (
 // supplied and may be wrong; every projection is therefore clamped so
 // that an overrunning job can never push a reservation into the past
 // or trick the scheduler into promising resources it does not hold.
-//
-// STUB — DO NOT IMPLEMENT (stubs #2 and #3). Implemented by the
-// project owner: Schedule and computeReservation.
 type BackfillScheduler struct {
 	Alloc  Allocator
 	Lookup JobLookup
@@ -91,7 +89,79 @@ func init() {
 //   - Inputs (queue, nodes, running) are never mutated.
 func (s *BackfillScheduler) Schedule(now time.Time, queue []types.Job, nodes []types.Node,
 	running []types.Allocation) []types.Allocation {
-	panic("not implemented")
+
+	work := cloneNodes(nodes)
+	q := cloneQueue(queue)
+
+	var out []types.Allocation
+	blocker := -1
+	for i, job := range q {
+		if job.State != types.Pending {
+			continue
+		}
+		nc := max(job.NodeCount, 1)
+		ids, ok := s.Alloc.Fit(work, job.Request, nc)
+		if !ok {
+			blocker = i
+			break
+		}
+		charge(work, ids, job.Request)
+		out = append(out, types.Allocation{JobID: job.ID, NodeIDs: ids, StartAt: now})
+	}
+	if blocker == -1 {
+		return out
+	}
+	head := q[blocker]
+
+	// Project the reservation against the state as of this cycle:
+	// charged nodes plus the running set including jobs just started.
+	combined := make([]types.Allocation, 0, len(running)+len(out))
+	for _, a := range running {
+		combined = append(combined, a.Clone())
+	}
+	combined = append(combined, out...)
+	resAt, resNodes, resOK := s.computeReservation(now, head, work, combined)
+	reserved := make(map[string]bool, len(resNodes))
+	for _, id := range resNodes {
+		reserved[id] = true
+	}
+
+	// Backfill the queue behind the blocker.
+	for k := blocker + 1; k < len(q); k++ {
+		job := q[k]
+		if job.State != types.Pending {
+			continue
+		}
+		nc := max(job.NodeCount, 1)
+		var (
+			ids []string
+			ok  bool
+		)
+		switch {
+		case !resOK:
+			// No satisfiable reservation exists; nothing to protect.
+			ids, ok = s.Alloc.Fit(work, job.Request, nc)
+		case !now.Add(job.EstRuntime).After(resAt):
+			// Projected gone before the blocker needs the nodes: may
+			// use anything free, reserved nodes included.
+			ids, ok = s.Alloc.Fit(work, job.Request, nc)
+		default:
+			// Outlives the reservation: only unreserved nodes.
+			free := make([]types.Node, 0, len(work))
+			for _, n := range work {
+				if !reserved[n.ID] {
+					free = append(free, n)
+				}
+			}
+			ids, ok = s.Alloc.Fit(free, job.Request, nc)
+		}
+		if !ok {
+			continue
+		}
+		charge(work, ids, job.Request)
+		out = append(out, types.Allocation{JobID: job.ID, NodeIDs: ids, StartAt: now})
+	}
+	return out
 }
 
 // computeReservation projects the earliest time the blocked
@@ -136,7 +206,60 @@ func (s *BackfillScheduler) Schedule(now time.Time, queue []types.Job, nodes []t
 //   - The node set returned is the allocator's deterministic choice.
 func (s *BackfillScheduler) computeReservation(now time.Time, head types.Job,
 	nodes []types.Node, running []types.Allocation) (time.Time, []string, bool) {
-	panic("not implemented")
+
+	nc := max(head.NodeCount, 1)
+
+	// Projected releases: e(a) = max(StartAt + Est, now); a job the
+	// lookup cannot resolve never releases (treated as +infinity).
+	type release struct {
+		at    time.Time
+		alloc types.Allocation
+		req   types.ResourceSpec
+	}
+	var releases []release
+	for _, a := range running {
+		j, ok := s.Lookup(a.JobID)
+		if !ok {
+			continue
+		}
+		end := a.StartAt.Add(j.EstRuntime)
+		if end.Before(now) {
+			end = now // overrun clamp: "could end any moment", never the past
+		}
+		releases = append(releases, release{at: end, alloc: a.Clone(), req: j.Request.Clone()})
+	}
+
+	// Candidate times: now, then each distinct release time ascending.
+	times := []time.Time{now}
+	for _, r := range releases {
+		times = append(times, r.at)
+	}
+	sort.Slice(times, func(i, k int) bool { return times[i].Before(times[k]) })
+
+	var prev time.Time
+	for i, t := range times {
+		if i > 0 && t.Equal(prev) {
+			continue
+		}
+		prev = t
+		work := cloneNodes(nodes)
+		for _, r := range releases {
+			if r.at.After(t) {
+				continue
+			}
+			for _, nid := range r.alloc.NodeIDs {
+				for k := range work {
+					if work[k].ID == nid {
+						work[k].Allocated = work[k].Allocated.Sub(r.req)
+					}
+				}
+			}
+		}
+		if ids, ok := s.Alloc.Fit(work, head.Request, nc); ok {
+			return t, ids, true
+		}
+	}
+	return time.Time{}, nil, false
 }
 
 func (s *BackfillScheduler) Name() string { return "backfill" }
