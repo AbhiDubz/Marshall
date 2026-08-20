@@ -1,15 +1,13 @@
 package dispatch
 
-// Test suite for stub #6: Dispatcher.dispatchExactlyOnce. The crash
-// matrix kills the "leader" at every step boundary of the dispatch
-// sequence — before and after each side effect applies, including the
+// Test suite for Dispatcher.dispatchExactlyOnce (formerly stub #6).
+// The crash matrix kills the "leader" at every step boundary of the
+// dispatch sequence — before and after each side effect applies, including the
 // window after the agent accepted but before the leader durably
 // recorded the commit — then lets a fresh dispatcher Recover and
 // asserts the job neither vanishes nor runs twice.
 //
-// These tests FAIL until the stub is implemented; helpers convert the
-// stub's panic into a test failure. Recovery-only tests (no stub in
-// the path) pass already.
+// The helpers keep converting any panic into a clean test failure.
 
 import (
 	"context"
