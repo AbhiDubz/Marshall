@@ -5,19 +5,22 @@ backed control plane, node agents, and a deterministic in-memory
 cluster simulator where the scheduling algorithms are developed and
 measured.
 
-Six functions were built test-first: each began as a documented stub
-with a complete failing suite specifying its algorithm and invariants,
-then was implemented against that suite. All six are done and
-`go test ./...` is fully green.
+Six functions each carry a documented contract — the doc comment
+above the function is its specification — and a test suite that pins
+the contract's invariants. On this branch three of them are
+intentionally unimplemented: their bodies are `panic("not
+implemented")`, so `go test ./pkg/sched/` and `go test ./pkg/dispatch/`
+are expected to fail and `go test ./...` is **not** green. Every other
+package passes.
 
-| # | Function | Spec + suite | Decision record |
-|---|---|---|---|
-| 1 | `alloc.BinPackAllocator.Fit` | `pkg/alloc/binpack_test.go` | ADR-0007 |
-| 2 | `sched.BackfillScheduler.Schedule` | `pkg/sched/backfill_test.go` | ADR-0008 |
-| 3 | `sched.BackfillScheduler.computeReservation` | `pkg/sched/backfill_test.go` | ADR-0008 |
-| 4 | `sched.GangScheduler.accumulate` | `pkg/sched/gang_test.go` | ADR-0009 |
-| 5 | `preempt.Policy.SelectVictims` | `pkg/preempt/policy_test.go` | ADR-0010 |
-| 6 | `dispatch.Dispatcher.dispatchExactlyOnce` | `pkg/dispatch/dispatch_test.go` | ADR-0011 |
+| # | Function | Spec + suite | Decision record | Status on this branch |
+|---|---|---|---|---|
+| 1 | `alloc.BinPackAllocator.Fit` | `pkg/alloc/binpack_test.go` | ADR-0007 | implemented |
+| 2 | `sched.BackfillScheduler.Schedule` | `pkg/sched/backfill_test.go` | ADR-0008 | implemented; its suite is red until #3 is, because `Schedule` calls `computeReservation` |
+| 3 | `sched.BackfillScheduler.computeReservation` | `pkg/sched/backfill_test.go` | ADR-0008 | **stub** — `panic("not implemented")` |
+| 4 | `sched.GangScheduler.accumulate` | `pkg/sched/gang_test.go` | ADR-0009 | **stub** — `panic("not implemented")` |
+| 5 | `preempt.Policy.SelectVictims` | `pkg/preempt/policy_test.go` | ADR-0010 | implemented |
+| 6 | `dispatch.Dispatcher.dispatchExactlyOnce` | `pkg/dispatch/dispatch_test.go` | ADR-0011 | **stub** — `panic("not implemented")` |
 
 ## Architecture
 
@@ -56,7 +59,7 @@ then was implemented against that suite. All six are done and
 
 ```bash
 # toolchain: Go 1.22+ (see docs/setup-notes.md for this machine's setup)
-go test ./...          # fully green
+go test ./...          # on this branch pkg/sched and pkg/dispatch FAIL by design (3 stubs, see above); all other packages pass
 
 # replay a committed trace deterministically
 go build -o bin/marshal-sim ./cmd/marshal-sim
@@ -108,7 +111,13 @@ chaos campaign).
 Every number below is a real run of `marshal-sim --compare` over the
 committed seed-42 traces (200 jobs each); regenerate with
 `./bin/marshal-sim --compare --chart docs/compare.svg`. Nothing here
-is ever estimated.
+is ever estimated. The table was measured with all six functions
+implemented (last such commit on this branch: `de9dccb`). A
+`marshal-sim` built from this branch, where three are stubbed, prints
+`NOT IMPL` instead of a number for 12 of the 27 rows — every backfill
+row plus the bimodal gang rows — and reproduces the other 15 exactly
+(uniform and bursty contain no multi-node jobs, so their gang rows
+never call `accumulate`).
 
 | Trace | Scheduler | Allocator | Util (CPU) | Mean wait | P95 wait | Makespan |
 |---|---|---|---|---|---|---|
@@ -147,6 +156,22 @@ utilization from 0.60 to **0.71** while shaving ~29 minutes off the
 makespan. On **uniform**, backfill roughly halves mean wait. On
 **bursty**, short bursts drain quickly whatever the policy — the
 policies differ by seconds, not minutes.
+
+Two caveats, both visible in the table:
+
+- **Uniform does not discriminate between policies.** CPU utilization
+  is 0.5337 for eight of the nine uniform rows (fifo+firstfit, at
+  0.5318, is the only exception), and those same eight rows share a
+  makespan of 1h4m43.4s. The trace is not resource-constrained enough
+  to separate schedulers or allocators on throughput; the nine uniform
+  rows differ only in their wait columns and should not be read as
+  nine independent data points.
+- **Backfill is not a free win.** On bursty, backfill+firstfit is
+  worse than plain fifo+firstfit on both utilization (0.5104 vs
+  0.5218) and makespan (46m1.278s vs 45m1.005s); only its mean wait
+  improves (32.24s vs 38.607s). With bestfit or binpack, backfill
+  matches fifo on utilization and makespan for that trace. The
+  evidence is collected in ADR-0012.
 
 Chaos: `marshal-chaos --seeds 1000` (fifo) and 200-seed campaigns
 with `--sched backfill`, `--sched gang`, and `--alloc binpack` all
