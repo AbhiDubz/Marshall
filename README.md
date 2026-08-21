@@ -7,20 +7,16 @@ measured.
 
 Six functions each carry a documented contract — the doc comment
 above the function is its specification — and a test suite that pins
-the contract's invariants. On this branch three of them are
-intentionally unimplemented: their bodies are `panic("not
-implemented")`, so `go test ./pkg/sched/` and `go test ./pkg/dispatch/`
-are expected to fail and `go test ./...` is **not** green. Every other
-package passes.
+the contract's invariants.
 
-| # | Function | Spec + suite | Decision record | Status on this branch |
-|---|---|---|---|---|
-| 1 | `alloc.BinPackAllocator.Fit` | `pkg/alloc/binpack_test.go` | ADR-0007 | implemented |
-| 2 | `sched.BackfillScheduler.Schedule` | `pkg/sched/backfill_test.go` | ADR-0008 | implemented; its suite is red until #3 is, because `Schedule` calls `computeReservation` |
-| 3 | `sched.BackfillScheduler.computeReservation` | `pkg/sched/backfill_test.go` | ADR-0008 | **stub** — `panic("not implemented")` |
-| 4 | `sched.GangScheduler.accumulate` | `pkg/sched/gang_test.go` | ADR-0009 | **stub** — `panic("not implemented")` |
-| 5 | `preempt.Policy.SelectVictims` | `pkg/preempt/policy_test.go` | ADR-0010 | implemented |
-| 6 | `dispatch.Dispatcher.dispatchExactlyOnce` | `pkg/dispatch/dispatch_test.go` | ADR-0011 | **stub** — `panic("not implemented")` |
+| # | Function | Spec + suite | Decision record |
+|---|---|---|---|
+| 1 | `alloc.BinPackAllocator.Fit` | `pkg/alloc/binpack_test.go` | ADR-0007 |
+| 2 | `sched.BackfillScheduler.Schedule` | `pkg/sched/backfill_test.go` | ADR-0008 |
+| 3 | `sched.BackfillScheduler.computeReservation` | `pkg/sched/backfill_test.go` | ADR-0008 |
+| 4 | `sched.GangScheduler.accumulate` | `pkg/sched/gang_test.go` | ADR-0009 |
+| 5 | `preempt.Policy.SelectVictims` | `pkg/preempt/policy_test.go` | ADR-0010 |
+| 6 | `dispatch.Dispatcher.dispatchExactlyOnce` | `pkg/dispatch/dispatch_test.go` | ADR-0011 |
 
 ## Architecture
 
@@ -59,7 +55,7 @@ package passes.
 
 ```bash
 # toolchain: Go 1.22+ (see docs/setup-notes.md for this machine's setup)
-go test ./...          # on this branch pkg/sched and pkg/dispatch FAIL by design (3 stubs, see above); all other packages pass
+go test ./...          # all packages pass
 
 # replay a committed trace deterministically
 go build -o bin/marshal-sim ./cmd/marshal-sim
@@ -103,7 +99,7 @@ done
 k8s manifests for the same 4-node shape are in `deploy/k8s/`; Grafana
 dashboard JSON in `deploy/grafana/`; an Ansible playbook for real
 worker nodes in `deploy/ansible/`; `Jenkinsfile` mirrors the GitHub
-Actions gates (vet, stub-aware tests, determinism check, 200-seed
+Actions gates (vet, unit tests, determinism check, 200-seed
 chaos campaign).
 
 ## Results
@@ -111,13 +107,7 @@ chaos campaign).
 Every number below is a real run of `marshal-sim --compare` over the
 committed seed-42 traces (200 jobs each); regenerate with
 `./bin/marshal-sim --compare --chart docs/compare.svg`. Nothing here
-is ever estimated. The table was measured with all six functions
-implemented (last such commit on this branch: `de9dccb`). A
-`marshal-sim` built from this branch, where three are stubbed, prints
-`NOT IMPL` instead of a number for 12 of the 27 rows — every backfill
-row plus the bimodal gang rows — and reproduces the other 15 exactly
-(uniform and bursty contain no multi-node jobs, so their gang rows
-never call `accumulate`).
+is ever estimated.
 
 | Trace | Scheduler | Allocator | Util (CPU) | Mean wait | P95 wait | Makespan |
 |---|---|---|---|---|---|---|
