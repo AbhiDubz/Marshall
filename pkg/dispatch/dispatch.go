@@ -118,58 +118,7 @@ type Dispatcher struct {
 //   - No interleaving loses the job (stuck SCHEDULED with no
 //     breadcrumb) or aborts a dispatch the agent accepted.
 func (d *Dispatcher) dispatchExactlyOnce(ctx context.Context, job types.Job, nodeIDs []string) error {
-	if len(nodeIDs) == 0 {
-		return fmt.Errorf("dispatch %s: no nodes", job.ID)
-	}
-
-	// 1. Precondition: SCHEDULED at exactly this attempt, re-read from
-	// the store — no side effects if another actor got there first.
-	cur, err := d.Store.GetJob(ctx, job.ID)
-	if err != nil {
-		return err
-	}
-	if cur.State != types.Scheduled || cur.Attempt != job.Attempt {
-		return fmt.Errorf("dispatch %s: job is %s attempt %d, want SCHEDULED attempt %d",
-			job.ID, cur.State, cur.Attempt, job.Attempt)
-	}
-	token := Token(job.ID, job.Attempt)
-	now := d.Now()
-
-	// 2. Durable intent BEFORE anything leaves the process.
-	if _, err := d.WAL.Append(ctx, Record{
-		Kind: KindIntent, Token: token, JobID: job.ID,
-		Attempt: job.Attempt, NodeIDs: nodeIDs, At: now,
-	}); err != nil {
-		return fmt.Errorf("dispatch %s: intent: %w", token, err)
-	}
-
-	// 3. Idempotent start on the primary agent.
-	cmd := ""
-	if d.Cmd != nil {
-		if cmd, err = d.Cmd(ctx, job.ID); err != nil {
-			return fmt.Errorf("dispatch %s: payload: %w", token, err)
-		}
-	}
-	if err := d.Agent(nodeIDs[0]).Start(ctx, StartRequest{
-		Token: token, JobID: job.ID, Attempt: job.Attempt,
-		NodeIDs: nodeIDs, Cmd: cmd,
-	}); err != nil {
-		return fmt.Errorf("dispatch %s: start: %w", token, err)
-	}
-
-	// 4. Durable commit: every future leader now knows the agent has it.
-	if _, err := d.WAL.Append(ctx, Record{
-		Kind: KindCommit, Token: token, JobID: job.ID,
-		Attempt: job.Attempt, NodeIDs: nodeIDs, At: now,
-	}); err != nil {
-		return fmt.Errorf("dispatch %s: commit: %w", token, err)
-	}
-
-	// 5. State follows the WAL.
-	if _, err := d.Store.TransitionJob(ctx, job.ID, types.Scheduled, types.Running, now); err != nil {
-		return fmt.Errorf("dispatch %s: mark running: %w", token, err)
-	}
-	return nil
+	panic("not implemented")
 }
 
 // Recover reconciles WAL state after this process takes leadership.

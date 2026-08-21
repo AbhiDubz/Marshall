@@ -234,3 +234,85 @@ participant adds a blocking protocol where an idempotent retry
 suffices; store-side "dispatching" flags without a WAL cannot
 distinguish "never sent" from "sent, ack lost", which is the whole
 problem.
+
+## ADR-0012: When backfill hurts
+
+**Decision.** TODO — author to complete.
+
+**Context.** On the bursty trace, EASY backfill with the firstfit
+allocator scores *lower* CPU utilization and a *longer* makespan than
+plain FIFO with the same allocator: 0.5104 vs 0.5218 and 46m1.278s vs
+45m1.005s. Only its mean wait improves (32.24s vs 38.607s); its p95
+wait is slightly worse (3m59.623s vs 3m54.352s). With bestfit or
+binpack, backfill matches FIFO exactly on utilization and makespan on
+this trace (0.5218 / 45m1.005s) and improves only the wait columns.
+
+Relevant rows, from the committed `marshal-sim --compare` run in the
+README (seed-42 traces, 200 jobs each):
+
+| Trace | Scheduler | Allocator | Util (CPU) | Mean wait | P95 wait | Makespan |
+|---|---|---|---|---|---|---|
+| bursty | fifo | firstfit | 0.5218 | 38.607s | 3m54.352s | 45m1.005s |
+| bursty | backfill | firstfit | **0.5104** | 32.24s | 3m59.623s | **46m1.278s** |
+| bursty | fifo | bestfit | 0.5218 | 43.2s | 4m27.536s | 45m1.005s |
+| bursty | backfill | bestfit | 0.5218 | 32.717s | 3m19.499s | 45m1.005s |
+| bursty | fifo | binpack | 0.5218 | 41.112s | 3m55.077s | 45m1.005s |
+| bursty | backfill | binpack | 0.5218 | 32.729s | 3m47.696s | 45m1.005s |
+
+The same trace shows a second firstfit-specific degradation in the
+gang row (gang+firstfit: 0.5038 / 46m37.855s, vs 0.5218 / 45m1.005s
+for gang+bestfit and gang+binpack); it is recorded here as a
+neighbouring observation only. No other trace shows backfill behind
+FIFO on any column.
+
+**Consequences.** TODO — author to complete.
+
+## ADR-0013: The unreachable verify in SelectVictims
+
+**Decision.** TODO — author to complete.
+
+**Context.** Step 4 of the `SelectVictims` contract
+(`pkg/preempt/policy.go`) requires that, after the per-slot greedy
+selection has committed its victims, the allocator is re-run on the
+projected node state (victims' allocations released) and must place
+`pending`; otherwise nobody is preempted. The implementation performs
+this check as its final step:
+
+```go
+// Verify: with victims released, the allocator must place pending.
+if _, ok := p.Alloc.Fit(work, pending.Request, nc); !ok {
+	return nil, false
+}
+```
+
+Measured: deleting those four lines leaves the entire test suite
+green. Verified on 2026-08-21 at commit `de9dccb` (all six functions
+implemented, `TestSelectVictimsNoPartialPreemption` included):
+`go test ./... -count=1` passes every package with the check removed.
+
+Why no test can reach a failing verify, as the code stands today:
+
+- Step 3 already returns `(nil, false)` whenever any slot finds no
+  feasible node. When the slot loop completes, `chosen` holds
+  `nc` distinct, non-draining nodes, each of which satisfied
+  `pending.Request.Fits(avail)` after the releases committed so far —
+  and later releases only ever increase a node's availability.
+- `Fit` has identical feasibility semantics across firstfit, bestfit,
+  and binpack. All three build the same candidate set
+  (`alloc.candidates`: every node with `CanFit(req)`, i.e. not
+  draining and `req.Fits(Available())`) and return `false` exactly
+  when fewer than `nodeCount` candidates exist. The per-slot loops in
+  bestfit and binpack charge only the node they pick and never reuse
+  it, so once `len(cands) >= nodeCount` they cannot fail. The three
+  differ in *which* nodes they choose, never in *whether* a placement
+  exists.
+- The suite's no-partial-preemption case
+  (`TestSelectVictimsNoPartialPreemption`, added alongside this
+  record) is therefore satisfied by the step-3 early return, not by
+  the step-4 verify.
+
+The check is currently unreachable defensive code: it guards against
+an allocator whose feasibility differs from `CanFit`-per-node, which
+none of the three registered allocators is.
+
+**Consequences.** TODO — author to complete.

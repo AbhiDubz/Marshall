@@ -262,3 +262,28 @@ func TestRequeueIncrementsAttempt(t *testing.T) {
 		t.Fatal("requeue from RUNNING must error")
 	}
 }
+
+// TestSelectVictimsNoPartialPreemption covers step 4 of the contract:
+// when preemption cannot free enough room for every slot the pending
+// job needs, SelectVictims must select NOBODY. Evicting some jobs and
+// still failing to place pending is the worst possible outcome —
+// work is destroyed for nothing.
+func TestSelectVictimsNoPartialPreemption(t *testing.T) {
+	// pending needs 2 nodes at 4000m. n1 runs a low-priority job that
+	// could be evicted; n2 runs an equal-priority job that may never
+	// be. So at most one slot can ever be freed.
+	nodes := []types.Node{node("n1", 4000), node("n2", 4000)}
+	running := []Candidate{
+		place(nodes, pjob("low", 1, 4000, 1, 10*time.Minute), 10*time.Minute, "n1"),
+		place(nodes, pjob("peer", 9, 4000, 1, 10*time.Minute), 10*time.Minute, "n2"),
+	}
+	pending := pjob("high", 9, 4000, 2, 0)
+	pending.State = types.Pending
+	victims, ok := svSelect(t, NewPolicy(alloc.FirstFitAllocator{}), pending, running, nodes)
+	if ok {
+		t.Fatalf("only one of two required slots can be freed; must not preempt, got %v", victims)
+	}
+	if len(victims) != 0 {
+		t.Fatalf("failed preemption must select nobody, got %v", victims)
+	}
+}

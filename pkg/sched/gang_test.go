@@ -312,3 +312,46 @@ func TestNaiveGreedyStarvesGangJob(t *testing.T) {
 		t.Fatalf("naive greedy scheduler started the gang job in %v — the starvation harness no longer discriminates", wait)
 	}
 }
+
+// TestAccumulateExcludesNodesHeldByAnotherGangJob covers the
+// heldByOthers guard in accumulate: two pending gang jobs must never
+// hold the same node, or both ratchet forever and neither starts.
+//
+// Regression: removing `heldByOthers[n.ID]` from the candidate filter
+// previously passed the whole suite.
+func TestAccumulateExcludesNodesHeldByAnotherGangJob(t *testing.T) {
+	s := NewGangScheduler(alloc.FirstFitAllocator{})
+	// n3 is too small for either job, so neither can ever be ready and
+	// both keep their holds across cycles.
+	work := []types.Node{mkNode("n1", 4000, 8), mkNode("n2", 4000, 8), mkNode("n3", 1000, 8)}
+	// gangA wants 3 nodes at 4000m; only n1 and n2 fit, so it holds
+	// those two and stays not-ready.
+	gangA := mkJob("gang-a", 5, 4000, 3, 0, time.Minute)
+	idsA, readyA := gsAccumulate(t, s, t0, gangA, work)
+	if readyA {
+		t.Fatalf("gang-a needs 3 fitting nodes but only 2 exist: %v", idsA)
+	}
+	if !reflect.DeepEqual(sortedCopy(idsA), []string{"n1", "n2"}) {
+		t.Fatalf("gang-a should hold n1,n2; got %v", idsA)
+	}
+	// gangB wants a single 4000m node. Both fitting nodes are held by
+	// gang-a, so gang-b must claim nothing at all.
+	gangB := mkJob("gang-b", 5, 4000, 1, time.Second, time.Minute)
+	idsB, readyB := gsAccumulate(t, s, t0, gangB, work)
+	if readyB {
+		t.Fatalf("gang-b must not become ready on nodes held by gang-a: %v", idsB)
+	}
+	if len(idsB) != 0 {
+		t.Fatalf("gang-b must hold nothing (n1,n2 held by gang-a, n3 too small); got %v", idsB)
+	}
+	// The two holds must stay disjoint.
+	held := map[string]string{}
+	for _, id := range s.heldFor("gang-a") {
+		held[id] = "gang-a"
+	}
+	for _, id := range s.heldFor("gang-b") {
+		if owner, dup := held[id]; dup {
+			t.Fatalf("node %s held by both %s and gang-b", id, owner)
+		}
+	}
+}

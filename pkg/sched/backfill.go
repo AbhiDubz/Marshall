@@ -7,6 +7,10 @@ import (
 	"github.com/AbhiDubz/Marshall/pkg/types"
 )
 
+// sort is used by computeReservation; this reference keeps the import
+// in place while that body is stubbed for reimplementation.
+var _ = sort.Slice
+
 // BackfillScheduler implements EASY backfill: strict priority/FIFO
 // order for the head of the queue, plus opportunistic backfilling of
 // later jobs into idle capacity — but only when doing so provably does
@@ -206,60 +210,7 @@ func (s *BackfillScheduler) Schedule(now time.Time, queue []types.Job, nodes []t
 //   - The node set returned is the allocator's deterministic choice.
 func (s *BackfillScheduler) computeReservation(now time.Time, head types.Job,
 	nodes []types.Node, running []types.Allocation) (time.Time, []string, bool) {
-
-	nc := max(head.NodeCount, 1)
-
-	// Projected releases: e(a) = max(StartAt + Est, now); a job the
-	// lookup cannot resolve never releases (treated as +infinity).
-	type release struct {
-		at    time.Time
-		alloc types.Allocation
-		req   types.ResourceSpec
-	}
-	var releases []release
-	for _, a := range running {
-		j, ok := s.Lookup(a.JobID)
-		if !ok {
-			continue
-		}
-		end := a.StartAt.Add(j.EstRuntime)
-		if end.Before(now) {
-			end = now // overrun clamp: "could end any moment", never the past
-		}
-		releases = append(releases, release{at: end, alloc: a.Clone(), req: j.Request.Clone()})
-	}
-
-	// Candidate times: now, then each distinct release time ascending.
-	times := []time.Time{now}
-	for _, r := range releases {
-		times = append(times, r.at)
-	}
-	sort.Slice(times, func(i, k int) bool { return times[i].Before(times[k]) })
-
-	var prev time.Time
-	for i, t := range times {
-		if i > 0 && t.Equal(prev) {
-			continue
-		}
-		prev = t
-		work := cloneNodes(nodes)
-		for _, r := range releases {
-			if r.at.After(t) {
-				continue
-			}
-			for _, nid := range r.alloc.NodeIDs {
-				for k := range work {
-					if work[k].ID == nid {
-						work[k].Allocated = work[k].Allocated.Sub(r.req)
-					}
-				}
-			}
-		}
-		if ids, ok := s.Alloc.Fit(work, head.Request, nc); ok {
-			return t, ids, true
-		}
-	}
-	return time.Time{}, nil, false
+	panic("not implemented")
 }
 
 func (s *BackfillScheduler) Name() string { return "backfill" }
